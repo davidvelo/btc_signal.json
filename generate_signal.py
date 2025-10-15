@@ -1,22 +1,73 @@
 import requests, pandas as pd, numpy as np, json
 from datetime import datetime, timezone
 
-# --- Parametría
-SYMBOL = "BTCUSDT"
+SYMBOL = "BTCUSDT"  # lo mantenemos para nombrado; los proveedores pueden usar USD
 
-def fetch_klines(symbol, interval, limit=1500):
-    url = "https://api.binance.com/api/v3/klines"
-    r = requests.get(url, params={"symbol": symbol, "interval": interval, "limit": limit}, timeout=20)
-    r.raise_for_status()
-    k = r.json()
-    df = pd.DataFrame(k, columns=[
-        "open_time","open","high","low","close","volume",
-        "close_time","qav","num_trades","taker_base","taker_quote","ignore"
-    ])
-    df["timestamp"] = pd.to_datetime(df["open_time"], unit="ms", utc=True)
+# ---------- Helpers ----------
+def to_df(rows, cols):
+    df = pd.DataFrame(rows, columns=cols)
+    df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
+    df = df.set_index("timestamp").sort_index()
     for c in ["open","high","low","close"]:
         df[c] = df[c].astype(float)
-    return df[["timestamp","open","high","low","close"]].set_index("timestamp")
+    return df[["open","high","low","close"]]
+
+def fetch_bitstamp(limit=1000, step_sec=3600, pair="btcusdt"):
+    # step=3600 => 1H; luego re-sampleamos a 4H y 1D
+    url = "https://www.bitstamp.net/api/v2/ohlc/{}/".format(pair)
+    r = requests.get(url, params={"step": step_sec, "limit": limit}, timeout=20)
+    r.raise_for_status()
+    data = r.json()
+    if "data" not in data or "ohlc" not in data["data"]:
+        raise ValueError("Bitstamp bad payload")
+    rows = []
+    for o in data["data"]["ohlc"]:
+        ts = datetime.fromtimestamp(int(o["timestamp"]), tz=timezone.utc).isoformat()
+        rows.append([ts, o["open"], o["high"], o["low"], o["close"]])
+    return to_df(rows, ["timestamp","open","high","low","close"])
+
+def fetch_coinbase(granularity=3600, limit=300, product="BTC-USD"):
+    # Coinbase devuelve [time, low, high, open, close, volume] en orden inverso
+    url = f"https://api.exchange.coinbase.com/products/{product}/candles"
+    r = requests.get(url, params={"granularity": granularity, "limit": limit}, timeout=20,
+                     headers={"User-Agent":"Mozilla/5.0"})
+    r.raise_for_status()
+    arr = r.json()
+    if not isinstance(arr, list):
+        raise ValueError("Coinbase bad payload")
+    rows = []
+    for t, low, high, open_, close, _ in arr:
+        ts = datetime.fromtimestamp(int(t), tz=timezone.utc).isoformat()
+        rows.append([ts, open_, high, low, close])
+    return to_df(rows, ["timestamp","open","high","low","close"])
+
+def fetch_kraken(pair="XXBTZUSD", interval=60, limit=1000):
+    url = "https://api.kraken.com/0/public/OHLC"
+    r = requests.get(url, params={"pair": pair, "interval": interval}, timeout=20)
+    r.raise_for_status()
+    data = r.json()
+    key = list(data["result"].keys())[0]
+    arr = data["result"][key]
+    rows = []
+    for t, o, h, l, c, *_ in arr[-limit:]:
+        ts = datetime.fromtimestamp(int(t), tz=timezone.utc).isoformat()
+        rows.append([ts, o, h, l, c])
+    return to_df(rows, ["timestamp","open","high","low","close"])
+
+def fetch_ohlc_fallback():
+    # Intentamos Bitstamp (USDT), si falla Coinbase (USD), si falla Kraken (USD)
+    errors = []
+    for fn in [
+        lambda: fetch_bitstamp(pair="btcusdt"),
+        lambda: fetch_coinbase(product="BTC-USD"),
+        lambda: fetch_kraken(pair="XXBTZUSD")
+    ]:
+        try:
+            return fn()
+        except Exception as e:
+            errors.append(str(e))
+            continue
+    raise RuntimeError("All providers failed: " + " | ".join(errors))
 
 def ema(s, n): return s.ewm(span=n, adjust=False).mean()
 
@@ -25,7 +76,11 @@ def chandelier_exit_long(close, atr_mult=3, atr_period=22):
     atr = tr.rolling(atr_period).mean()
     return close.rolling(atr_period).max() - atr_mult * atr
 
-def make_dirs_1d_4h(df1d, df4h):
+def make_dirs_1d_4h(df):
+    # Tenemos 1H (o variable) → construimos vistas 4H y 1D
+    df4h = df.resample("4H").agg({"open":"first","high":"max","low":"min","close":"last"}).dropna()
+    df1d = df.resample("1D").agg({"open":"first","high":"max","low":"min","close":"last"}).dropna()
+
     # SSL por EMA9/21
     ssl1d = np.where(ema(df1d["close"],9) > ema(df1d["close"],21), 1, -1)
     ssl4h = np.where(ema(df4h["close"],9) > ema(df4h["close"],21), 1, -1)
@@ -41,11 +96,11 @@ def make_dirs_1d_4h(df1d, df4h):
     votes4h = (st4h + ssl4h).astype(int)
     dir4h   = np.where(votes4h >= 1, 1, -1)
 
-    # Alinear 4H al último voto del día
+    # Alinear 4H a 1D (último voto del día)
     v4h_d = pd.Series(votes4h, index=df4h.index).resample("1D").last().reindex(df1d.index).ffill()
     d4h_d = np.where(v4h_d >= 1, 1, -1)
 
-    return votes1d, dir1d, v4h_d.values.astype(int), d4h_d.astype(int)
+    return df1d, df4h, votes1d, dir1d, v4h_d.values.astype(int), d4h_d.astype(int)
 
 def volatility_regime(close_1d):
     ret = close_1d.pct_change()
@@ -56,14 +111,11 @@ def volatility_regime(close_1d):
     return "SIDEWAYS"
 
 def main():
-    # Datos recientes
-    df1d = fetch_klines(SYMBOL, "1d")      # ~500 días
-    df4h = fetch_klines(SYMBOL, "4h")      # ~500*6 velas 4h
-
-    v1d, d1d, v4d, d4d = make_dirs_1d_4h(df1d, df4h)
+    df = fetch_ohlc_fallback()              # 1H (Bitstamp/CB/Kraken)
+    df1d, df4h, v1d, d1d, v4d, d4d = make_dirs_1d_4h(df)
     agree = d1d[-1] == d4d[-1]
 
-    # Score muy simple (magnitud de votos + pendiente EMA200)
+    # Score simple
     ema200 = ema(df1d["close"], 200)
     slope  = ((ema200 - ema200.shift(1)) / ema200).fillna(0.0).clip(-0.02,0.02)
     norm_votes = (0.6*(v1d[-1]/3.0) + 0.4*(v4d[-1]/2.0))
@@ -71,11 +123,9 @@ def main():
     score = raw_score if agree else 0.0
 
     regime = volatility_regime(df1d["close"])
-    direction = "FLAT"
-    confidence = 0.50
+    direction, confidence = "FLAT", 0.50
     if agree:
         direction = "LONG" if d1d[-1] == 1 else "SHORT"
-        # política v1 por régimen (suave)
         if regime == "HIGH_VOL" and raw_score < 0.25:
             direction, confidence = "FLAT", 0.50
         else:
@@ -83,7 +133,7 @@ def main():
 
     signal = {
         "version": "0.3.0",
-        "asset": "BTCUSDT",
+        "asset": SYMBOL,
         "signal": {
             "timestamp_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "timeframe": "1D",
@@ -92,11 +142,11 @@ def main():
             "confidence": confidence,
             "risk_score": 0.40 if regime != "HIGH_VOL" else 0.65,
             "volatility_regime": regime,
-            "explanation": f"1D votes={int(v1d[-1])}, 4H(d) votes={int(v4d[-1])}, agree={agree}, score={raw_score:.2f}."
+            "explanation": f"1D votes={int(v1d[-1])}, 4H(d) votes={int(v4d[-1])}, agree={agree}, score={raw_score:.2f} (fuente OHLC fallback)."
         },
         "provenance": {
             "models": ["rules: SSL(ema9/21)+STbackup(ema10)+Chandelier"],
-            "data_sources": ["Binance public klines (1D,4H)"]
+            "data_sources": ["Bitstamp/CB/Kraken OHLC (fallback)"]
         }
     }
 
