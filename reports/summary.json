@@ -1,0 +1,32 @@
+{
+  "generated_at_utc": "2025-10-15T15:54:11Z",
+  "samples_total": 42,
+  "coverage_pct": 0.0,
+  "edge_pct": -100000000000.0,
+  "sharpe_like": 0.0,
+  "equity_last": 1.0,
+  "train_days": 180,
+  "test_days": 30,
+  "grid": {
+    "score": [
+      0.1,
+      0.15,
+      0.2,
+      0.25,
+      0.3
+    ],
+    "votes1d": [
+      1,
+      2,
+      3
+    ],
+    "votes4h": [
+      1,
+      2
+    ]
+  },
+  "artifacts": {
+    "wf_windows_csv": "reports/wf_windows.csv",
+    "daily_signals_csv": "reports/daily_signals.csv"
+  }
+}
