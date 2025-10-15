@@ -2,22 +2,21 @@
   "version": "0.3.0",
   "asset": "BTCUSDT",
   "signal": {
-    "timestamp_utc": "2025-10-15T13:58:21Z",
+    "timestamp_utc": "2025-10-15T15:35:56Z",
     "timeframe": "1D",
     "horizon_hours": 24,
-    "direction": "FLAT",
-    "confidence": 0.5,
+    "direction": "SHORT",
+    "confidence": 0.85,
     "risk_score": 0.4,
     "volatility_regime": "SIDEWAYS",
-    "explanation": "Regime=SIDEWAYS, ADX1D=35.7, ADX4H(d)=27.3; 1D votes=1 (st:1,ssl:1,ch:-1); 4H votes=-2 (st:-1,ssl:-1)."
+    "explanation": "1D votes=-3, 4H(d) votes=-2, agree=True, score=0.85 (fuente OHLC fallback)."
   },
   "provenance": {
     "models": [
-      "rules: ST(ema200 preferred)+SSL(ema9/21)+Chandelier + thresholds regime-aware + ADX filters"
+      "rules: SSL(ema9/21)+STbackup(ema10)+Chandelier"
     ],
     "data_sources": [
-      "local_csv:/mnt/data/btc_unified_4h.csv",
-      "local_csv:/mnt/data/btc_unified_1d.csv"
+      "Bitstamp/CB/Kraken OHLC (fallback)"
     ]
   }
 }
