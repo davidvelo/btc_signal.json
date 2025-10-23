@@ -2,7 +2,7 @@
   "version": "0.3.0",
   "asset": "BTCUSDT",
   "signal": {
-    "timestamp_utc": "2025-10-23T21:14:33Z",
+    "timestamp_utc": "2025-10-23T22:15:12Z",
     "timeframe": "1D",
     "horizon_hours": 24,
     "direction": "FLAT",
