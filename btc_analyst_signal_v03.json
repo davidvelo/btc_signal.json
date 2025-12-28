@@ -2,14 +2,14 @@
   "version": "0.3.0",
   "asset": "BTCUSDT",
   "signal": {
-    "timestamp_utc": "2025-12-28T09:17:55Z",
+    "timestamp_utc": "2025-12-28T10:17:57Z",
     "timeframe": "1D",
     "horizon_hours": 24,
     "direction": "SHORT",
-    "confidence": 0.85,
+    "confidence": 0.73,
     "risk_score": 0.4,
     "volatility_regime": "SIDEWAYS",
-    "explanation": "1D votes=-3, 4H(d) votes=-2, agree=True, score=0.85 (fuente OHLC fallback)."
+    "explanation": "1D votes=-3, 4H(d) votes=0, agree=True, score=0.51 (fuente OHLC fallback)."
   },
   "provenance": {
     "models": [
