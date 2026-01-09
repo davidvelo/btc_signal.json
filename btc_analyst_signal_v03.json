@@ -2,14 +2,14 @@
   "version": "0.3.0",
   "asset": "BTCUSDT",
   "signal": {
-    "timestamp_utc": "2026-01-09T16:24:15Z",
+    "timestamp_utc": "2026-01-09T17:21:00Z",
     "timeframe": "1D",
     "horizon_hours": 24,
     "direction": "FLAT",
     "confidence": 0.5,
     "risk_score": 0.4,
     "volatility_regime": "SIDEWAYS",
-    "explanation": "1D votes=3, 4H(d) votes=0, agree=False, score=0.51 (fuente OHLC fallback)."
+    "explanation": "1D votes=1, 4H(d) votes=0, agree=False, score=0.17 (fuente OHLC fallback)."
   },
   "provenance": {
     "models": [
